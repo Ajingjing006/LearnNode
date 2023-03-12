@@ -1,19 +1,26 @@
 import http from "http";
-import fs, {readFileSync, accessSync, constants } from "fs";
+import { readFileSync, accessSync, constants, watch } from "fs";
 import mime from "mime";
+import { listen } from './lib/chat_server.js';
 const cache = new Map(); //用来缓存文件对象
-const server = http.createServer();
 const port = 3005;
+const server = http.createServer();
+
 server.addListener('request', generateResponse);
-server.listen(port, ()=>{
+server.listen(port, () => {
     console.log(`server running on http://localhost:${port}`);
+    listen(server);
 })
+
+watchFileChange();
 
 //获取文件绝对位置
 function transferFileUrl(req) {
     let filePath = req.url;
     if (filePath == '/') {
         filePath = 'public/index.html';
+    } else if (req.url == "/favicon.ico") {
+        filePath = 'favicon.ico';
     } else {
         filePath = `public${req.url}`;
     }
@@ -28,20 +35,20 @@ function assertFileReadExist(absPath) {
     try {
         accessSync(absPath, constants.R_OK);
         return true;
-    } catch(err) {
+    } catch (err) {
         return false
     }
 }
 
 //请求处理流程
 function generateResponse(req, res) {
-   const absPath = transferFileUrl(req);
-   const fileFound = assertFileReadExist(absPath);
-   if (fileFound) {
-    sendFile(res, absPath);
-   } else {
-    send404(res);
-   }
+    const absPath = transferFileUrl(req);
+    const fileFound = assertFileReadExist(absPath);
+    if (fileFound) {
+        sendFile(res, absPath);
+    } else {
+        send404(res);
+    }
 }
 
 //404 response
@@ -59,7 +66,6 @@ function sendFile(res, absPath) {
         res.writeHead(200, {
             'Content-Type': fileMime
         })
-        console.log(`${absPath} come from cache`);
         res.end(cache.get(absPath));
     } else {
         const fileContent = readFileSync(absPath);
@@ -68,10 +74,21 @@ function sendFile(res, absPath) {
                 'Content-Type': fileMime
             })
             cache.set(absPath, fileContent);
-            console.log(`${absPath} come from read file success`);
             res.end(fileContent);
         } else {
             send404(res);
         }
     }
+}
+
+//监控文件变化
+function watchFileChange() {
+    watch('public', { recursive: true }, (eventType, fileName) => {
+        const filePath = `./public/${fileName.replace(/\\/, '/')}`;
+        console.log('listen cache', filePath);
+        if (cache.has(filePath)) {
+            console.log('delete cache', filePath);
+            cache.delete(filePath);
+        }
+    })
 }
